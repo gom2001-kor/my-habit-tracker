@@ -168,17 +168,28 @@ export default function Home() {
     if (!window.confirm('Are you sure you want to delete this habit?')) return;
 
     try {
-      // Delete habit (assuming cascade delete is enabled for logs in DB)
-      const { error } = await supabase
+      // 1. Delete related logs first (Manual Cascade)
+      const { error: logsError } = await supabase
+        .from('habit_logs')
+        .delete()
+        .eq('habit_id', id);
+
+      if (logsError) throw logsError;
+
+      // 2. Delete the habit
+      const { error: habitError } = await supabase
         .from('habits')
         .delete()
         .eq('id', id);
 
-      if (error) throw error;
+      if (habitError) throw habitError;
 
+      // 3. Update local state
       setHabits(prev => prev.filter(h => h.id !== id));
+      console.log("Deleted habit and logs");
     } catch (error) {
-      console.error('Error deleting habit:', error);
+      console.error("Delete failed:", error);
+      alert("Failed to delete habit. Please try again.");
     }
   };
 
