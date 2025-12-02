@@ -168,13 +168,20 @@ export default function Home() {
     if (!window.confirm('Are you sure you want to delete this habit?')) return;
 
     try {
+      console.log("Starting delete process for habit:", id);
+
       // 1. Delete related logs first (Manual Cascade)
+      // We must await this to ensure logs are gone before deleting the parent habit
       const { error: logsError } = await supabase
         .from('habit_logs')
         .delete()
         .eq('habit_id', id);
 
-      if (logsError) throw logsError;
+      if (logsError) {
+        console.error("Error deleting related logs:", logsError);
+        throw logsError;
+      }
+      console.log("Successfully deleted related logs");
 
       // 2. Delete the habit
       const { error: habitError } = await supabase
@@ -182,14 +189,18 @@ export default function Home() {
         .delete()
         .eq('id', id);
 
-      if (habitError) throw habitError;
+      if (habitError) {
+        console.error("Error deleting habit:", habitError);
+        throw habitError;
+      }
+      console.log("Successfully deleted habit");
 
       // 3. Update local state
       setHabits(prev => prev.filter(h => h.id !== id));
-      console.log("Deleted habit and logs");
+      console.log("UI updated: Habit removed");
     } catch (error) {
-      console.error("Delete failed:", error);
-      alert("Failed to delete habit. Please try again.");
+      console.error("Delete operation failed:", error);
+      alert("Failed to delete habit. Please check the console for error details.");
     }
   };
 
