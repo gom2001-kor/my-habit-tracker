@@ -1,65 +1,232 @@
-import Image from "next/image";
+'use client';
+
+import React, { useState, useEffect } from 'react';
+import { Header } from '@/components/Header';
+import { DateDisplay } from '@/components/DateDisplay';
+import { HabitList } from '@/components/HabitList';
+import { AddHabitButton } from '@/components/AddHabitButton';
+import { AddHabitModal } from '@/components/AddHabitModal';
+import { HabitHistoryModal } from '@/components/HabitHistoryModal';
+import { Habit } from '@/types';
+import { supabase } from '@/lib/supabaseClient';
 
 export default function Home() {
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
+  const [habits, setHabits] = useState<Habit[]>([]);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingHabit, setEditingHabit] = useState<Habit | null>(null);
+  const [historyHabit, setHistoryHabit] = useState<Habit | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const fetchHabits = async () => {
+    try {
+      setLoading(true);
+      // Fetch habits
+      const { data: habitsData, error: habitsError } = await supabase
+        .from('habits')
+        .select('*')
+        .order('id', { ascending: true });
+
+      if (habitsError) throw habitsError;
+
+      // Fetch logs
+      const { data: logsData, error: logsError } = await supabase
+        .from('habit_logs')
+        .select('*');
+
+      if (logsError) throw logsError;
+
+      // Process data
+      const today = new Date();
+      const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+
+      const processedHabits: Habit[] = (habitsData || []).map(habit => {
+        const habitLogs = (logsData || []).filter(log => log.habit_id === habit.id);
+        const completedDates = habitLogs.map(log => log.completed_date);
+        const isCompletedToday = completedDates.includes(dateStr);
+
+        // Calculate streak
+        let streak = 0;
+        // Sort dates descending
+        const sortedDates = [...completedDates].sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+
+        let checkDate = new Date(today);
+        // If not completed today, check from yesterday for streak calculation
+        if (!isCompletedToday) {
+          checkDate.setDate(checkDate.getDate() - 1);
+        }
+
+        // Simple loop to count consecutive days
+        while (true) {
+          const checkStr = `${checkDate.getFullYear()}-${String(checkDate.getMonth() + 1).padStart(2, '0')}-${String(checkDate.getDate()).padStart(2, '0')}`;
+          if (completedDates.includes(checkStr)) {
+            streak++;
+            checkDate.setDate(checkDate.getDate() - 1);
+          } else {
+            break;
+          }
+        }
+
+        return {
+          ...habit,
+          completed: isCompletedToday,
+          streak,
+          completedDates
+        };
+      });
+
+      setHabits(processedHabits);
+    } catch (error) {
+      console.error('Error fetching habits:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchHabits();
+  }, []);
+
+  const toggleHabit = async (id: string) => {
+    const today = new Date();
+    const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    const habit = habits.find(h => h.id === id);
+    if (!habit) return;
+
+    // Optimistic Update
+    setHabits(prev => prev.map(h => {
+      if (h.id === id) {
+        const newCompleted = !h.completed;
+        const newCompletedDates = newCompleted
+          ? [...(h.completedDates || []), dateStr]
+          : (h.completedDates || []).filter(d => d !== dateStr);
+
+        // Optimistic streak update
+        let streak = h.streak;
+        if (newCompleted) {
+          streak = h.streak + 1;
+        } else {
+          streak = Math.max(0, h.streak - 1);
+        }
+
+        return { ...h, completed: newCompleted, completedDates: newCompletedDates, streak };
+      }
+      return h;
+    }));
+
+    try {
+      if (habit.completed) {
+        // Uncheck: Delete log
+        const { error } = await supabase
+          .from('habit_logs')
+          .delete()
+          .eq('habit_id', id)
+          .eq('completed_date', dateStr);
+
+        if (error) throw error;
+      } else {
+        // Check: Insert log
+        const { error } = await supabase
+          .from('habit_logs')
+          .insert({ habit_id: id, completed_date: dateStr });
+
+        if (error) throw error;
+      }
+    } catch (error) {
+      console.error('Error toggling habit:', error);
+      // Revert optimistic update on error by re-fetching
+      fetchHabits();
+    }
+  };
+
+  const handleSaveHabit = async (name: string, icon: string) => {
+    try {
+      if (editingHabit) {
+        // Update
+        const { error } = await supabase
+          .from('habits')
+          .update({ name, icon })
+          .eq('id', editingHabit.id);
+
+        if (error) throw error;
+      } else {
+        // Create
+        const { error } = await supabase
+          .from('habits')
+          .insert({ name, icon });
+
+        if (error) throw error;
+      }
+      fetchHabits();
+      setIsModalOpen(false);
+      setEditingHabit(null);
+    } catch (error) {
+      console.error('Error saving habit:', error);
+    }
+  };
+
+  const deleteHabit = async (id: string) => {
+    if (!window.confirm('Are you sure you want to delete this habit?')) return;
+
+    try {
+      // Delete habit (assuming cascade delete is enabled for logs in DB)
+      const { error } = await supabase
+        .from('habits')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+
+      setHabits(prev => prev.filter(h => h.id !== id));
+    } catch (error) {
+      console.error('Error deleting habit:', error);
+    }
+  };
+
+  const openAddModal = () => {
+    setEditingHabit(null);
+    setIsModalOpen(true);
+  };
+
+  const openEditModal = (habit: Habit) => {
+    setEditingHabit(habit);
+    setIsModalOpen(true);
+  };
+
+  const openHistoryModal = (habit: Habit) => {
+    setHistoryHabit(habit);
+  };
+
+  if (loading) {
+    return (
+      <main className="min-h-screen pb-20 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-500"></div>
       </main>
-    </div>
+    );
+  }
+
+  return (
+    <main className="min-h-screen pb-20">
+      <Header />
+      <DateDisplay />
+      <HabitList
+        habits={habits}
+        onToggle={toggleHabit}
+        onDelete={deleteHabit}
+        onEdit={openEditModal}
+        onClick={openHistoryModal}
+      />
+      <AddHabitButton onClick={openAddModal} />
+      <AddHabitModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onSave={handleSaveHabit}
+        initialData={editingHabit ? { name: editingHabit.name, icon: editingHabit.icon || '📝' } : null}
+      />
+      <HabitHistoryModal
+        isOpen={!!historyHabit}
+        onClose={() => setHistoryHabit(null)}
+        habit={historyHabit}
+      />
+    </main>
   );
 }
